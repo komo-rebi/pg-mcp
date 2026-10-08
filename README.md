@@ -345,6 +345,45 @@ Return Type: sql
 | `OBSERVABILITY_LOG_LEVEL`       | 日志级别             | `INFO` |
 | `OBSERVABILITY_LOG_FORMAT`      | 日志格式（json/text）  | `json` |
 
+## 代码审查问题修复
+
+针对课程第 5 章第 4节 codex review 指出的三个问题，本项目完成了如下修复（290 个单元测试全部通过，含 42 个新增回归测试）：
+
+### 1. 多数据库与安全控制已启用（此前仅是摆设）
+
+- **多数据库路由**：`QueryOrchestrator` 新增 `sql_executors: dict[str, SQLExecutor]` 参数，按请求中的 `database` 字段路由到对应数据库的连接池；未指定库名且配置了多个数据库时明确报错 `Multiple databases available, please specify which to query`，而不是静默打到主库（修复了原来的关键 bug：指定 database 仍使用单一 executor 查主库）。
+- **额外数据库配置**：`EXTRA_DATABASES` 环境变量（JSON 数组）支持在主库之外声明多个数据库，server 启动时为每个库创建独立连接池。
+- **表/列级访问控制**：`SECURITY_BLOCKED_TABLES` / `SECURITY_BLOCKED_COLUMNS`（逗号分隔）真正接入 `SQLValidator`；`SECURITY_ALLOW_EXPLAIN` 控制 EXPLAIN 策略（默认拒绝）。
+
+### 2. 弹性与可观测性已接入请求链路（此前未整合）
+
+- **速率限制**：`RESILIENCE_QUERY_RATE_LIMIT` / `RESILIENCE_LLM_RATE_LIMIT` 通过 `MultiRateLimiter` 守护查询管线与 LLM 调用；获取槽位超时（`RESILIENCE_RATE_LIMIT_TIMEOUT`）时返回 `rate_limit_exceeded` 错误而非无限阻塞。
+- **指数退避重试**：LLM/校验失败重试按 `retry_delay * backoff_factor ** attempt` 退避（上限 `circuit_breaker_timeout`），不再是无间隔的连续重试。
+- **Prometheus 埋点**：`MetricsCollector` 的查询计数、SQL 拒绝计数、LLM 调用/延迟/Token、查询耗时直方图全部在请求链路中记录；另修复了 `reset_all_metrics()` 重复注册指标导致的崩溃。
+
+### 3. 模型与配置缺陷修复
+
+- **删除重复 `to_dict`**：`QueryResponse` 原先定义了两个 `to_dict`，后者（`exclude_none=True`）覆盖前者导致 `tokens_used` 丢失、调用方需要打补丁；现保留单一实现，`tokens_used` 始终序列化（缺省为 0）。
+- **启用闲置配置**：`max_question_length` 真正生效（超长问题返回 `question_too_long`）；`min_confidence_score` 用于低于阈值结果告警。
+- **清理死代码**：删除 server.py 中创建后从未使用的 `_circuit_breaker` 等。
+
+新增回归测试：`tests/unit/test_multi_database.py`、`tests/unit/test_security_controls.py`、`tests/unit/test_resilience_integration.py`。
+
+### 验证演示
+
+无需 OpenAI Key 即可复现上述修复效果（使用 fixtures 中的两个真实数据库）：
+
+```bash
+# 1. 启动 PostgreSQL 并加载示例数据
+docker compose up -d postgres
+cd fixtures && make create-small create-medium && cd ..
+
+# 2. 运行演示脚本（多库路由 / 安全拦截 / 限流 / 指标 / 退避重试）
+uv run python scripts/demo_review_fixes.py
+```
+
+演示效果见 `docs/review-fixes-demo.png`。
+
 ## 开发
 
 ### 设置开发环境

@@ -371,6 +371,69 @@ class TestQueryResponse:
         assert response.data is None
 
 
+class TestQueryResponseToDict:
+    """QueryResponse.to_dict must be a single, consistent serializer.
+
+    Regression tests for the review finding: QueryResponse used to define two
+    to_dict methods; the second (exclude_none=True) shadowed the first and
+    silently dropped tokens_used, forcing callers to patch the result.
+    """
+
+    def test_to_dict_tokens_used_defaults_to_zero(self) -> None:
+        """tokens_used=None serializes as 0, key always present."""
+        response = QueryResponse(
+            success=True,
+            generated_sql="SELECT 1",
+            confidence=90,
+        )
+        d = response.to_dict()
+        assert "tokens_used" in d
+        assert d["tokens_used"] == 0
+
+    def test_to_dict_keeps_actual_tokens(self) -> None:
+        """A real token count must not be dropped by serialization."""
+        response = QueryResponse(
+            success=True,
+            generated_sql="SELECT 1",
+            confidence=90,
+            tokens_used=137,
+        )
+        d = response.to_dict()
+        assert d["tokens_used"] == 137
+
+    def test_to_dict_includes_core_fields(self) -> None:
+        """Core fields survive serialization."""
+        from pg_mcp.models.query import ValidationResult
+
+        response = QueryResponse(
+            success=True,
+            generated_sql="SELECT 1",
+            validation=ValidationResult(is_valid=True),
+            data=QueryResult(columns=["n"], rows=[{"n": 1}], row_count=1),
+            confidence=99,
+            tokens_used=5,
+        )
+        d = response.to_dict()
+        assert d["success"] is True
+        assert d["generated_sql"] == "SELECT 1"
+        assert d["validation"]["is_valid"] is True
+        assert d["data"]["row_count"] == 1
+        assert d["confidence"] == 99
+
+    def test_to_dict_error_response_has_error_and_tokens(self) -> None:
+        """Error responses serialize error info plus a tokens_used of 0."""
+        from pg_mcp.models.query import ErrorDetail as QueryErrorDetail
+
+        response = QueryResponse(
+            success=False,
+            error=QueryErrorDetail(code="internal_error", message="boom"),
+        )
+        d = response.to_dict()
+        assert d["success"] is False
+        assert d["error"]["code"] == "internal_error"
+        assert d["tokens_used"] == 0
+
+
 class TestErrorModels:
     """Tests for error models."""
 

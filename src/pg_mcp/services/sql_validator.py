@@ -26,13 +26,16 @@ class SQLValidator:
     """
 
     # Allowed statement types at the top level (including set operations)
-    ALLOWED_STATEMENT_TYPES: ClassVar = {
-        exp.Select, exp.Union, exp.Intersect, exp.Except
-    }
+    ALLOWED_STATEMENT_TYPES: ClassVar = {exp.Select, exp.Union, exp.Intersect, exp.Except}
 
     # Allowed top-level expressions (including CTEs)
     ALLOWED_TOP_LEVEL: ClassVar = {
-        exp.Select, exp.Union, exp.Intersect, exp.Except, exp.With, exp.Subquery
+        exp.Select,
+        exp.Union,
+        exp.Intersect,
+        exp.Except,
+        exp.With,
+        exp.Subquery,
     }
 
     # Forbidden statement types

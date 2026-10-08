@@ -185,13 +185,35 @@ class MetricsCollector:
         self.schema_cache_age.labels(database=database).set(age_seconds)
 
     def reset_all_metrics(self) -> None:
-        """Reset all metrics to initial state.
+        """Reset all metrics to their initial state.
 
         This method is primarily useful for testing purposes.
+
+        Note: Prometheus client collectors cannot be re-registered (the
+        registry rejects duplicate series names), so instead of recreating
+        the collectors we clear their recorded label combinations.
         """
-        # Note: Prometheus client doesn't provide a clean way to reset metrics
-        # This is mainly for testing - in production, metrics are cumulative
-        self._initialize_metrics()
+        for attr in (
+            "query_requests",
+            "query_duration",
+            "llm_calls",
+            "llm_latency",
+            "llm_tokens_used",
+            "sql_rejected",
+            "db_connections_active",
+            "db_query_duration",
+            "schema_cache_age",
+        ):
+            metric = getattr(self, attr, None)
+            if metric is None:
+                continue
+            # Labelled collectors keep per-label-set children in ``_metrics``;
+            # unlabelled ones expose a single ``_metric`` which cannot be
+            # reset through the public API (acceptable: production metrics
+            # are cumulative, reset is a test convenience).
+            labelled = getattr(metric, "_metrics", None)
+            if labelled is not None:
+                labelled.clear()
 
 
 # Singleton instance

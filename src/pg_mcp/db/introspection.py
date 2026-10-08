@@ -5,7 +5,6 @@ extracting comprehensive metadata about tables, columns, constraints, indexes,
 and custom types.
 """
 
-
 from asyncpg import Pool
 from asyncpg.connection import Connection
 

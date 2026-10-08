@@ -79,7 +79,7 @@ async def create_pools(configs: list[DatabaseConfig]) -> dict[str, Pool]:
     return pools
 
 
-async def close_pools(pools: dict[str, Pool], timeout: float = 10.0) -> None:
+async def close_pools(pools: dict[str, Pool], timeout: float = 10.0) -> None:  # noqa: ASYNC109
     """Close all connection pools gracefully.
 
     This function closes all pools and waits for all connections to be
@@ -106,11 +106,9 @@ async def close_pools(pools: dict[str, Pool], timeout: float = 10.0) -> None:
             # Try graceful close with timeout
             await asyncio.wait_for(pool.close(), timeout=timeout)
             logger.info(f"Connection pool for '{db_name}' closed gracefully")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Force termination if graceful close times out
-            logger.warning(
-                f"Graceful close timed out for '{db_name}', forcing termination"
-            )
+            logger.warning(f"Graceful close timed out for '{db_name}', forcing termination")
             pool.terminate()
             logger.info(f"Connection pool for '{db_name}' terminated")
         except Exception as e:

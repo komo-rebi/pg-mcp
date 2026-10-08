@@ -99,12 +99,26 @@ class SecurityConfig(BaseSettings):
         default="public", description="Safe search_path to set during query execution"
     )
 
-    @field_validator("blocked_functions", mode="before")
+    # Fine-grained access control (committed in the design, wired in this version)
+    blocked_tables: list[str] = Field(
+        default_factory=list,
+        description="Table names that queries may not access (comma-separated env value)",
+    )
+    blocked_columns: list[str] = Field(
+        default_factory=list,
+        description="Column names that queries may not access (comma-separated env value)",
+    )
+    allow_explain: bool = Field(
+        default=False,
+        description="Allow EXPLAIN statements (they are safe but may leak plan details)",
+    )
+
+    @field_validator("blocked_functions", "blocked_tables", "blocked_columns", mode="before")
     @classmethod
-    def parse_blocked_functions(cls, v: str | list[str]) -> list[str]:
+    def parse_string_list(cls, v: str | list[str]) -> list[str]:
         """Parse comma-separated string or list."""
         if isinstance(v, str):
-            return [f.strip() for f in v.split(",") if f.strip()]
+            return [item.strip() for item in v.split(",") if item.strip()]
         return v
 
 
@@ -164,6 +178,26 @@ class ResilienceConfig(BaseSettings):
         default=60.0, ge=10.0, le=300.0, description="Circuit breaker timeout in seconds"
     )
 
+    # Rate limiting (wired into the request pipeline in this version)
+    query_rate_limit: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        description="Maximum concurrent database queries",
+    )
+    llm_rate_limit: int = Field(
+        default=5,
+        ge=1,
+        le=1000,
+        description="Maximum concurrent LLM API calls",
+    )
+    rate_limit_timeout: float = Field(
+        default=30.0,
+        ge=0.1,
+        le=300.0,
+        description="Seconds to wait for a rate limiter slot before rejecting a request",
+    )
+
 
 class ObservabilityConfig(BaseSettings):
     """Observability and monitoring configuration."""
@@ -177,7 +211,9 @@ class ObservabilityConfig(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         default="INFO", description="Logging level"
     )
-    log_format: Literal["json", "text"] = Field(default="text", description="Log format")
+    # Default "json" to match README / .env.example and tests (was "text", a
+    # code-vs-design drift flagged in review).
+    log_format: Literal["json", "text"] = Field(default="json", description="Log format")
 
 
 class Settings(BaseSettings):
@@ -196,12 +232,25 @@ class Settings(BaseSettings):
 
     # Nested configurations
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    extra_databases: list[DatabaseConfig] = Field(
+        default_factory=list,
+        description=(
+            "Additional databases exposed by the server. Configured via the "
+            "EXTRA_DATABASES env var as a JSON array, e.g. "
+            '[{"name":"analytics","host":"db2","user":"ro","password":"x"}]'
+        ),
+    )
     openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     cache: CacheConfig = Field(default_factory=CacheConfig)
     resilience: ResilienceConfig = Field(default_factory=ResilienceConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+
+    @property
+    def all_databases(self) -> list[DatabaseConfig]:
+        """All configured databases (primary first, then extras)."""
+        return [self.database, *self.extra_databases]
 
     @property
     def is_production(self) -> bool:
